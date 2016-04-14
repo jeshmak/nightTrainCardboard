@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Connecting up Google Cardboard to web APIs</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+      body {
+        margin: 0px;
+        overflow: hidden;
+      }
+      #webglviewer {
+        bottom: 0;
+        left: 0;
+        position: absolute;
+        right: 0;
+        top: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="webglviewer"></div>
+    <script src="lib/three.min.js"></script>
+    <script src="lib/StereoEffect.js"></script>
+    <script src="lib/DeviceOrientationControls.js"></script>
+    <script src="lib/OrbitControls.js"></script>
+    <script src="lib/Coordinates.js"></script>
+	<script src="lib/OrbitAndPanControls.js"></script>
+
+	
+	<script type="x-shader/x-vertex" id="vertexShader">
+	varying vec3 vWorldPosition;
+	void main() {
+		vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
+		vWorldPosition = worldPosition.xyz;
+		gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+	}
+	</script>
+
+	<script type="x-shader/x-fragment" id="fragmentShader">
+	uniform vec3 topColor;
+	uniform vec3 bottomColor;
+	uniform float offset;
+	uniform float exponent;
+	varying vec3 vWorldPosition;
+	void main() {
+		float h = normalize( vWorldPosition + offset ).y;
+		gl_FragColor = vec4( mix( bottomColor, topColor, max( pow( max( h, 0.0 ), exponent ), 0.0 ) ), 1.0 );	
+	}
+	</script>
+
+    <script>
+	var scene,
+		camera, 
+		renderer,
+		element,
+		container,
+		effect,
+		controls,
+		clock,
+		headlight,
+		particleGroup,
+		toyTrain,
+		ttCompt_01, 
+		ttCompt_02;
+
+	var ttEngine = new THREE.Object3D();
+	var engFrntRightWheel = new THREE.Object3D();
+	var engRareRightWheel = new THREE.Object3D();
+	var engFrntLeftWheel = new THREE.Object3D();
+	var engRareLeftWheel = new THREE.Object3D();
+	var smokeParticles = new THREE.Geometry;
+
+	var material = new THREE.MeshPhongMaterial( { color: 0x393939, specular: 0x2e2e2e, shininess: 30 } );
+	var bluMat = new THREE.MeshPhongMaterial( { color: 0x3399ff, specular: 0x2e2e2e, shininess: 30 } );
+	var redMat = new THREE.MeshPhongMaterial( { color: 0xff0000, specular: 0x2e2e2e, shininess: 30 } );
+	var greenMat = new THREE.MeshPhongMaterial( { color: 0x009933, specular: 0x2e2e2e, shininess: 30 } );		
+	var owhiteMat = new THREE.MeshPhongMaterial( { color: 0xffcccc, specular: 0x2e2e2e, shininess: 30 } );
+	var yellowMat = new THREE.MeshPhongMaterial( { color: 0xffff99, specular: 0x2e2e2e, shininess: 30 } );
+	var orngwMat = new THREE.MeshPhongMaterial( { color: 0xff9900, specular: 0x2e2e2e, shininess: 30 } );
+
+	init();
+
+	function init() {
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 1, 80000);
+        camera.position.set(0, 125, 0);
+        scene.add(camera);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+		//renderer.setClearColorHex( 0xAAAAAA, 1.0 );
+		renderer.gammaInput = true;
+		renderer.gammaOutput = true;
+        element = renderer.domElement;
+        container = document.getElementById('webglviewer');
+        container.appendChild(element);
+
+        effect = new THREE.StereoEffect(renderer);
+
+        // Our initial control fallback with mouse/touch events in case DeviceOrientation is not enabled
+        controls = new THREE.OrbitControls(camera, element);
+	
+        controls.target.set(
+          camera.position.x+0.15,
+          camera.position.y,
+          camera.position.z
+        );
+        controls.noPan = true;
+        controls.noZoom = true;
+
+        // Our preferred controls via DeviceOrientation
+		function setOrientationControls(e) {
+        	if (!e.alpha) {
+            	return;
+			}
+
+			controls = new THREE.DeviceOrientationControls(camera, true);
+			controls.connect();
+			controls.update();
+
+			element.addEventListener('click', fullscreen, false);
+
+			window.removeEventListener('deviceorientation', setOrientationControls, true);
+        }
+        window.addEventListener('deviceorientation', setOrientationControls, true);
+
+		//add fog
+		scene.fog = new THREE.Fog(  0x0B173B, 100, 1200 );
+		
+        // Lighting
+        var light = new THREE.PointLight(0x999999, 0.1, 100000);
+        light.position.set(50, 50, 50);
+        scene.add(light);
+
+        var lightScene = new THREE.PointLight(0x999999, 1, 100000);
+        lightScene.position.set(0, 500, 700);
+        scene.add(lightScene);
+
+		var light = new THREE.AmbientLight( 0x404040 ); // soft white light
+		//scene.add( light );
+
+		headlight = new THREE.PointLight( 0xFFFFFF, 0.6 );
+		//scene.add(headlight);
+
+		addSkyDome();
+		addStars();
+		// add train
+		toyTrain = new THREE.Object3D();
+		ttCompt_01 = new THREE.Object3D();
+		ttCompt_01.rotation.y = -20 * Math.PI/180;
+		ttCompt_02 = new THREE.Object3D();
+		ttCompt_02.rotation.y = -40 * Math.PI/180;
+		assembleTrain( toyTrain, ttCompt_01, ttCompt_02 );
+		scene.add( toyTrain );
+		scene.add( ttCompt_01 );
+		scene.add( ttCompt_02 );
+
+        clock = new THREE.Clock();
+		animate();
+	}
+
+	function animate() {
+		delta = clock.getDelta();
+
+		var trainSpeed = 0.25;
+		var cfOfOuterTrack = Math.PI * ( 735*2 );
+		var cfOfInnerTrack = Math.PI * ( 650*2 );
+		var cfOfwheel = Math.PI * ( 24*2 );
+		var oneRotationInRad = 6.283185;
+		var outerWheelSpeed = ( trainSpeed*(cfOfOuterTrack/oneRotationInRad)/cfOfwheel ) * oneRotationInRad;
+		var innerWheelSpeed = ( trainSpeed*(cfOfInnerTrack/oneRotationInRad)/cfOfwheel ) * oneRotationInRad;
+		toyTrain.rotation.y += trainSpeed*Math.PI/180;
+		ttCompt_01.rotation.y += (trainSpeed*Math.PI/180);
+		ttCompt_02.rotation.y += (trainSpeed*Math.PI/180);
+		engFrntRightWheel.rotation.y -= (outerWheelSpeed*Math.PI/180);
+		engRareRightWheel.rotation.y -= (outerWheelSpeed*Math.PI/180);
+		engFrntLeftWheel.rotation.y -= (innerWheelSpeed*Math.PI/180);
+		engRareLeftWheel.rotation.y -= (innerWheelSpeed*Math.PI/180);
+
+		//Star Sprite Particles : apply expression to scale x and y for glittering fill.
+		for ( var c = 0; c < particleGroup.children.length; c ++ ) {
+			var sprite = particleGroup.children[ c ];
+			var scale = Math.sin( delta * 1000 ) * (Math.random()*15) + 40.0;
+			sprite.scale.set( scale, scale, 1.0);
+		}
+
+		requestAnimationFrame(animate);
+        update(clock.getDelta());
+        render(clock.getDelta());
+	}
+
+	function resize() {
+    	var width = container.offsetWidth;
+        var height = container.offsetHeight;
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height);
+        effect.setSize(width, height);
+	}
+
+	function update(dt) {
+		resize();
+        camera.updateProjectionMatrix();
+        controls.update(dt);
+	}
+
+	function render(dt) {
+
+		//Smoke Particles : define y height limit, random x movement, reused particle randomly within 
+		//define radius and define travel speed.
+		var particleCount = smokeParticles.vertices.length;
+		while (particleCount--) {
+			var particle = smokeParticles.vertices[particleCount];
+			particle.y += delta * 150;
+			particle.x -= delta * Math.random() *150;
+			if (particle.y >= 120) {
+				particle.y = Math.random() * 15;
+				particle.x = Math.random() * 30 - 15;
+				particle.z = Math.random() * 30 - 15;
+			}
+		}
+		smokeParticles.__dirtyVertices = true;
+        effect.render(scene, camera);
+		headlight.position.copy(camera.position);
+	}
+
+	function fullscreen() {
+		if (container.requestFullscreen) {
+			container.requestFullscreen();
+        } else if (container.msRequestFullscreen) {
+          container.msRequestFullscreen();
+        } else if (container.mozRequestFullScreen) {
+          container.mozRequestFullScreen();
+        } else if (container.webkitRequestFullscreen) {
+          container.webkitRequestFullscreen();
+        }
+	}
+
+	function addSkyDome() {
+		var vertexShader = document.getElementById( 'vertexShader' ).textContent;
+		var fragmentShader = document.getElementById( 'fragmentShader' ).textContent;
+		var uniforms = {
+	  		topColor:	{ type: "c", value: new THREE.Color( 0x070B19) },
+	  		bottomColor:	{ type: "c", value: new THREE.Color( 0x0B173B ) },
+	  		offset:	{ type: "f", value: 800.0 },
+	  		exponent:	{ type: "f", value: 0.6 }
+		}
+		var skyGeo = new THREE.SphereGeometry( 4000, 32, 15 );
+		var skyMat = new THREE.ShaderMaterial( { vertexShader: vertexShader, fragmentShader: fragmentShader, 	uniforms: uniforms, side: THREE.BackSide } );
+		var sky = new THREE.Mesh( skyGeo, skyMat );
+		scene.add( sky );
+	}
+	
+	function addStars() {
+		var particleTexture = THREE.ImageUtils.loadTexture( 'media/particle.png' );
+		particleGroup = new THREE.Object3D();
+		var totalParticles = 1000;
+		var radiusRange = 900;
+		for( var i = 0; i < totalParticles; i++ ) 
+		{
+			spriteMaterial = new THREE.SpriteMaterial( { map: particleTexture, useScreenCoordinates: false, color: 0xffffff } );
+			var pSc = Math.random()*144;
+			sprite = new THREE.Sprite( spriteMaterial );
+			sprite.scale.set( pSc, pSc, 1.0 );
+			sprite.position.set( Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5 );
+			sprite.position.setLength( radiusRange * (Math.random() * 0.5 + 1.0) );
+			sprite.material.color.setHSL( Math.random(), 0.5, (Math.random())-0.5 ); 
+			sprite.material.blending = THREE.AdditiveBlending; 
+			particleGroup.add( sprite );
+		}
+		scene.add( particleGroup );	
+	}
+
+	function createTrack(rad) {
+		var trcInner = new THREE.Mesh( new THREE.TorusGeometry( rad, (rad*0.5/100), 6, 100 ), material );
+		trcInner.rotation.x = 90*Math.PI/180;
+		scene.add( trcInner );
+		var trcOuter = new THREE.Mesh( new THREE.TorusGeometry( rad+85, (rad*0.5/100), 6, 100 ), material );
+		trcOuter.rotation.x = 90*Math.PI/180;
+		scene.add( trcOuter );
+		//create track connectors		
+		for ( i=0; i<=359; i=i+4) {
+			var slab = new THREE.Mesh( new THREE.CubeGeometry( 100,2,20 ), material );
+			slab.position.x = rad+(85/2);
+			slab.position.y = 0;
+			var slabRot = new THREE.Object3D();
+			slabRot.add( slab );
+			slabRot.rotation.y = i * Math.PI/180;
+			scene.add(slabRot);
+		}
+	}
+
+	function createTrainEngine(ttEngine) {
+		var engHookCyl = new THREE.Mesh( new THREE.CylinderGeometry( 2, 2, 20, 16, 10 ), material );
+		engHookCyl.position.x = -(100+10);
+		engHookCyl.rotation.z = 90*Math.PI/180;
+		ttEngine.add( engHookCyl );
+		var engHookTor = new THREE.Mesh( new THREE.TorusGeometry( 6, 1.6, 16, 100 ), material );
+		engHookTor.position.x = -(100+14+6);
+		engHookTor.rotation.x = 90*Math.PI/180;
+		ttEngine.add( engHookTor );
+		var cube = new THREE.Mesh( new THREE.CubeGeometry( 200,24,80 ), owhiteMat );
+		ttEngine.add( cube );
+		var cube1 = new THREE.Mesh( new THREE.CubeGeometry( 100,80,80 ), greenMat );
+		cube1.position.y = 12+40;
+		cube1.position.x = -50;
+		ttEngine.add( cube1 );
+		//creating roof for train engine
+		var roof = new THREE.Mesh( new THREE.CylinderGeometry( 10, 80, 50, 4, 10  ), orngwMat );
+		roof.position.y = 12+80+25;
+		roof.position.x = -50;
+		roof.rotation.y = 45*Math.PI/180;
+		ttEngine.add( roof );
+		//creating front cylinder for train engine
+		var cyl = new THREE.Mesh( new THREE.CylinderGeometry( 35, 35, 100, 40, 10 ), redMat );
+		cyl.rotation.z = 90*Math.PI/180;
+		cyl.position.y = 12+25;
+		cyl.position.x = 40;
+		ttEngine.add( cyl );
+		//STAROnWHEELS
+		var c2star1FRa = new THREE.Mesh( new THREE.CylinderGeometry( 22, 22, 3, 3, 10 ), redMat );
+		var c2star1FRb = new THREE.Mesh( new THREE.CylinderGeometry( 22, 22, 3, 3, 10 ), redMat );
+		c2star1FRa.position.y = 3;
+		c2star1FRb.position.y = 3;
+		c2star1FRb.rotation.y = 180*Math.PI/180;
+		engFrntRightWheel.add(c2star1FRa);
+		engFrntRightWheel.add(c2star1FRb);
+		
+		var c2star1RRa = new THREE.Mesh( new THREE.CylinderGeometry( 22, 22, 3, 3, 10 ), redMat );
+		var c2star1RRb = new THREE.Mesh( new THREE.CylinderGeometry( 22, 22, 3, 3, 10 ), redMat );
+		c2star1RRa.position.y = 3;
+		c2star1RRb.position.y = 3;
+		c2star1RRb.rotation.y = 180*Math.PI/180;
+		engRareRightWheel.add(c2star1RRa);
+		engRareRightWheel.add(c2star1RRb);
+	
+		var c2star1FLa = new THREE.Mesh( new THREE.CylinderGeometry( 22, 22, 3, 3, 10 ), redMat );
+		var c2star1FLb = new THREE.Mesh( new THREE.CylinderGeometry( 22, 22, 3, 3, 10 ), redMat );
+		c2star1FLa.position.y = -3;
+		c2star1FLb.position.y = -3;
+		c2star1FLb.rotation.y = 180*Math.PI/180;
+		engFrntLeftWheel.add(c2star1FLa);
+		engFrntLeftWheel.add(c2star1FLb);
+				
+		var c2star1RLa = new THREE.Mesh( new THREE.CylinderGeometry( 22, 22, 3, 3, 10 ), redMat );
+		var c2star1RLb = new THREE.Mesh( new THREE.CylinderGeometry( 22, 22, 3, 3, 10 ), redMat );
+		c2star1RLa.position.y = -3;
+		c2star1RLb.position.y = -3;
+		c2star1RLb.rotation.y = 180*Math.PI/180;
+		engRareLeftWheel.add(c2star1RLa);
+		engRareLeftWheel.add(c2star1RLb);
+		//WHEELS
+		var frntRight = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		engFrntRightWheel.add( frntRight );
+		engFrntRightWheel.rotation.x = 90*Math.PI/180;
+		engFrntRightWheel.position.z = 40+4;
+		engFrntRightWheel.position.x = 50;
+		ttEngine.add( engFrntRightWheel );				
+		var rareRight = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		engRareRightWheel.add(rareRight);
+		engRareRightWheel.rotation.x = 90*Math.PI/180;
+		engRareRightWheel.position.z = 40+4;
+		engRareRightWheel.position.x = -50;
+		ttEngine.add( engRareRightWheel );
+		var frntLeft = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		engFrntLeftWheel.add(frntLeft);
+		engFrntLeftWheel.rotation.x = 90*Math.PI/180;
+		engFrntLeftWheel.position.z = -(40+4);
+		engFrntLeftWheel.position.x = 50;
+		ttEngine.add( engFrntLeftWheel );
+		var rareLeft = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		engRareLeftWheel.add(rareLeft);
+		engRareLeftWheel.rotation.x = 90*Math.PI/180;
+		engRareLeftWheel.position.z = -(40+4);
+		engRareLeftWheel.position.x = -50;
+		ttEngine.add( engRareLeftWheel );
+		//creating smoke chimney
+		var chi = new THREE.Mesh( new THREE.CylinderGeometry( 20, 12, 24, 40, 10 ), yellowMat );
+		chi.position.y = 12+35+24;
+		chi.position.x = 50;
+		ttEngine.add( chi );
+	}
+
+	function addCompartment( ttCompt_01_pos, ttCompt_02_pos ) {
+		var c1Base = new THREE.Mesh( new THREE.CubeGeometry( 200,24,80 ), owhiteMat );
+		ttCompt_01_pos.add( c1Base );
+		//HOOK
+		var c1Hook = new THREE.Mesh( new THREE.CubeGeometry( 25,8,12 ), material );
+		c1Hook.position.x = 100+12;
+		c1Hook.position.y = -8;
+		ttCompt_01_pos.add( c1Hook );
+		var c1HookCyl = new THREE.Mesh( new THREE.CylinderGeometry( 2, 2, 10, 16, 10 ), material );
+		c1HookCyl.position.x = 100+25-5;
+		c1HookCyl.position.y = 1;
+		ttCompt_01_pos.add( c1HookCyl );
+		//WALLS
+		var c1WallR = new THREE.Mesh( new THREE.CubeGeometry( 200,50,10 ), orngwMat );
+		c1WallR .position.y = 12+25;
+		c1WallR .position.z = 80/2-10/2;
+		ttCompt_01_pos.add( c1WallR  );
+		var c1WallL = new THREE.Mesh( new THREE.CubeGeometry( 200,50,10 ), orngwMat );
+		c1WallL .position.y = 12+25;
+		c1WallL .position.z = -(80/2-10/2);
+		ttCompt_01_pos.add( c1WallL  );
+		var c1WallF = new THREE.Mesh( new THREE.CubeGeometry( 10,50,60 ), redMat );
+		c1WallF .position.y = 12+25;
+		c1WallF .position.x = 200/2-10/2;
+		ttCompt_01_pos.add( c1WallF  );	
+		var c1WallR = new THREE.Mesh( new THREE.CubeGeometry( 10,50,60 ), redMat );
+		c1WallR .position.y = 12+25;
+		c1WallR .position.x = -(200/2-10/2);
+		ttCompt_01_pos.add( c1WallR  );
+		//WHEELS
+		var c1WheelFR = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		c1WheelFR.rotation.x = 90*Math.PI/180;
+		c1WheelFR.position.z = 40+4;
+		c1WheelFR.position.x = 50;
+		ttCompt_01_pos.add( c1WheelFR );
+		var c1WheelRR = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		c1WheelRR.rotation.x = 90*Math.PI/180;
+		c1WheelRR.position.z = 40+4;
+		c1WheelRR.position.x = -50;
+		ttCompt_01_pos.add( c1WheelRR );
+		var c1WheelFL = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		c1WheelFL.rotation.x = 90*Math.PI/180;
+		c1WheelFL.position.z = -(40+4);
+		c1WheelFL.position.x = 50;
+		ttCompt_01_pos.add( c1WheelFL );
+		var c1WheelRL = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		c1WheelRL.rotation.x = 90*Math.PI/180;
+		c1WheelRL.position.z = -(40+4);
+		c1WheelRL.position.x = -50;
+		ttCompt_01_pos.add( c1WheelRL );
+		//B_HOOK
+		var c1BHook = new THREE.Mesh( new THREE.CylinderGeometry( 2, 2, 20, 16, 10 ), material );
+		c1BHook.position.x = -(100+10);
+		//engHookCyl.position.y = -1;
+		c1BHook.rotation.z = 90*Math.PI/180;
+		ttCompt_01_pos.add( c1BHook );
+		var c1BHookTor = new THREE.Mesh( new THREE.TorusGeometry( 6, 1.6, 16, 100 ), material );
+		c1BHookTor.position.x = -(100+14+6);
+		//engHookTor.position.y = -1;
+		c1BHookTor.rotation.x = 90*Math.PI/180;
+		ttCompt_01_pos.add( c1BHookTor );
+
+		//HOOK - Second Compartment
+		var c2Hook = new THREE.Mesh( new THREE.CubeGeometry( 25,8,12 ), material );
+		ttCompt_02_pos.add( c2Hook );
+		c2Hook.position.x = 100+12;
+		c2Hook.position.y = -8;
+		var c2HookCyl = new THREE.Mesh( new THREE.CylinderGeometry( 2, 2, 10, 16, 10 ), material );
+		ttCompt_02_pos.add( c2HookCyl );
+		c2HookCyl.position.x = 100+25-5;
+		c2HookCyl.position.y = 1;
+		//BASE 
+		var c2Base = new THREE.Mesh( new THREE.CubeGeometry( 200,24,80 ), owhiteMat );
+		ttCompt_02_pos.add( c2Base );
+		//WALLS
+		var c2WallR = new THREE.Mesh( new THREE.CubeGeometry( 200,50,10 ), redMat );
+		c2WallR .position.y = 12+25;
+		c2WallR .position.z = 80/2-10/2;
+		ttCompt_02_pos.add( c2WallR  );
+		var c2WallL = new THREE.Mesh( new THREE.CubeGeometry( 200,50,10 ), redMat );
+		c2WallL .position.y = 12+25;
+		c2WallL .position.z = -(80/2-10/2);
+		ttCompt_02_pos.add( c2WallL  );
+		var c2WallF = new THREE.Mesh( new THREE.CubeGeometry( 10,50,60 ), orngwMat );
+		c2WallF .position.y = 12+25;
+		c2WallF .position.x = 200/2-10/2;
+		ttCompt_02_pos.add( c2WallF  );	
+		var c2WallR = new THREE.Mesh( new THREE.CubeGeometry( 10,50,60 ), orngwMat );
+		c2WallR .position.y = 12+25;
+		c2WallR .position.x = -(200/2-10/2);
+		ttCompt_02_pos.add( c2WallR  );
+		var c2WheelFR = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		c2WheelFR.rotation.x = 90*Math.PI/180;
+		c2WheelFR.position.z = 40+4;
+		c2WheelFR.position.x = 50;
+		ttCompt_02_pos.add( c2WheelFR );
+		var c2WheelRR = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		c2WheelRR.rotation.x = 90*Math.PI/180;
+		c2WheelRR.position.z = 40+4;
+		c2WheelRR.position.x = -50;
+		ttCompt_02_pos.add( c2WheelRR );
+		var c2WheelFL = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		c2WheelFL.rotation.x = 90*Math.PI/180;
+		c2WheelFL.position.z = -(40+4);
+		c2WheelFL.position.x = 50;
+		ttCompt_02_pos.add( c2WheelFL );
+		var c2WheelRL = new THREE.Mesh( new THREE.CylinderGeometry( 24, 24, 8, 16, 10 ), bluMat );
+		c2WheelRL.rotation.x = 90*Math.PI/180;
+		c2WheelRL.position.z = -(40+4);
+		c2WheelRL.position.x = -50;
+		ttCompt_02_pos.add( c2WheelRL );
+	}
+	//old name createTrain()
+	function assembleTrain(toyTrain, ttCompt_01, ttCompt_02) {
+		var radius = 650;
+		createTrainEngine(ttEngine);
+		//creating track geo with define radius.
+		createTrack(radius);
+		//positioning engine geo.
+		ttEngine.position.z = radius+40;
+		ttEngine.position.y = 24;
+		// add field for animated part, for simplicity
+		toyTrain.animated = ttEngine;
+		toyTrain.add(ttEngine);
+		//positioning compartments geo.
+		var ttCompt_01_pos = new THREE.Object3D();
+		var ttCompt_02_pos = new THREE.Object3D();
+		addCompartment( ttCompt_01_pos, ttCompt_02_pos );
+		ttCompt_01_pos.position.z = radius+40;
+		ttCompt_02_pos.position.z = radius+40;
+		ttCompt_01_pos.position.y = 24;
+		ttCompt_02_pos.position.y = 24;
+		// add field for animated part, for simplicity
+		ttCompt_01.animated = ttCompt_01_pos;
+		ttCompt_02.animated = ttCompt_02_pos;			
+		ttCompt_01.add(ttCompt_01_pos);
+		ttCompt_02.add(ttCompt_02_pos);
+	}
+	
+    </script>
+  </body>
+</html>
