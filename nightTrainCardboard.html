@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Connecting up Google Cardboard to web APIs</title>
+    <title>My first test in VR by connecting Google Cardboard to web APIs</title>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
     <style>
@@ -69,7 +69,8 @@
 	var engRareRightWheel = new THREE.Object3D();
 	var engFrntLeftWheel = new THREE.Object3D();
 	var engRareLeftWheel = new THREE.Object3D();
-	var smokeParticles = new THREE.Geometry;
+	var particles = new THREE.Object3D();
+	var totalParticles = 200;
 
 	var material = new THREE.MeshPhongMaterial( { color: 0x393939, specular: 0x2e2e2e, shininess: 30 } );
 	var bluMat = new THREE.MeshPhongMaterial( { color: 0x3399ff, specular: 0x2e2e2e, shininess: 30 } );
@@ -88,7 +89,6 @@
         scene.add(camera);
 
         renderer = new THREE.WebGLRenderer({ antialias: true });
-		//renderer.setClearColorHex( 0xAAAAAA, 1.0 );
 		renderer.gammaInput = true;
 		renderer.gammaOutput = true;
         element = renderer.domElement;
@@ -117,15 +117,10 @@
 			controls = new THREE.DeviceOrientationControls(camera, true);
 			controls.connect();
 			controls.update();
-
 			element.addEventListener('click', fullscreen, false);
-
 			window.removeEventListener('deviceorientation', setOrientationControls, true);
         }
         window.addEventListener('deviceorientation', setOrientationControls, true);
-
-		//add fog
-		scene.fog = new THREE.Fog(  0x0B173B, 100, 1200 );
 		
         // Lighting
         var light = new THREE.PointLight(0x999999, 0.1, 100000);
@@ -136,14 +131,13 @@
         lightScene.position.set(0, 500, 700);
         scene.add(lightScene);
 
-		var light = new THREE.AmbientLight( 0x404040 ); // soft white light
-		//scene.add( light );
-
 		headlight = new THREE.PointLight( 0xFFFFFF, 0.6 );
 		//scene.add(headlight);
 
 		addSkyDome();
 		addStars();
+		addSmoke();
+
 		// add train
 		toyTrain = new THREE.Object3D();
 		ttCompt_01 = new THREE.Object3D();
@@ -162,7 +156,7 @@
 	function animate() {
 		delta = clock.getDelta();
 
-		var trainSpeed = 0.25;
+		var trainSpeed = 0.15;
 		var cfOfOuterTrack = Math.PI * ( 735*2 );
 		var cfOfInnerTrack = Math.PI * ( 650*2 );
 		var cfOfwheel = Math.PI * ( 24*2 );
@@ -183,6 +177,18 @@
 			var scale = Math.sin( delta * 1000 ) * (Math.random()*15) + 40.0;
 			sprite.scale.set( scale, scale, 1.0);
 		}
+	
+		//Simulate smoke
+		for (var i = 0; i < totalParticles; i++) {
+            particles.children[i].position.y+= delta * 150;
+			particles.children[i].position.x -= delta * Math.random() *150;
+			particles.children[i].position.z -= delta * Math.random() *250+5;
+			if (particles.children[i].position.y >= Math.random()*500) {
+        		particles.children[i].position.y = Math.random() * 15;
+        		particles.children[i].position.x = Math.random() * 30 - 15;
+        		particles.children[i].position.z = Math.random() * 30 - 15;
+    		}
+        }
 
 		requestAnimationFrame(animate);
         update(clock.getDelta());
@@ -205,21 +211,6 @@
 	}
 
 	function render(dt) {
-
-		//Smoke Particles : define y height limit, random x movement, reused particle randomly within 
-		//define radius and define travel speed.
-		var particleCount = smokeParticles.vertices.length;
-		while (particleCount--) {
-			var particle = smokeParticles.vertices[particleCount];
-			particle.y += delta * 150;
-			particle.x -= delta * Math.random() *150;
-			if (particle.y >= 120) {
-				particle.y = Math.random() * 15;
-				particle.x = Math.random() * 30 - 15;
-				particle.z = Math.random() * 30 - 15;
-			}
-		}
-		smokeParticles.__dirtyVertices = true;
         effect.render(scene, camera);
 		headlight.position.copy(camera.position);
 	}
@@ -255,7 +246,7 @@
 		var particleTexture = THREE.ImageUtils.loadTexture( 'media/particle.png' );
 		particleGroup = new THREE.Object3D();
 		var totalParticles = 1000;
-		var radiusRange = 900;
+		var radiusRange = 800;
 		for( var i = 0; i < totalParticles; i++ ) 
 		{
 			spriteMaterial = new THREE.SpriteMaterial( { map: particleTexture, useScreenCoordinates: false, color: 0xffffff } );
@@ -263,12 +254,12 @@
 			sprite = new THREE.Sprite( spriteMaterial );
 			sprite.scale.set( pSc, pSc, 1.0 );
 			sprite.position.set( Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5 );
-			sprite.position.setLength( radiusRange * (Math.random() * 0.5 + 1.0) );
-			sprite.material.color.setHSL( Math.random(), 0.5, (Math.random())-0.5 ); 
-			sprite.material.blending = THREE.AdditiveBlending; 
+			sprite.position.setLength( radiusRange * (Math.random() * 5.0 + 0.2) );
+			sprite.material.color.setHSL( Math.random(), 0.5, (Math.random())-0.5 );
+			sprite.material.blending = THREE.AdditiveBlending;
 			particleGroup.add( sprite );
 		}
-		scene.add( particleGroup );	
+		scene.add( particleGroup );
 	}
 
 	function createTrack(rad) {
@@ -518,6 +509,29 @@
 		ttCompt_02.animated = ttCompt_02_pos;			
 		ttCompt_01.add(ttCompt_01_pos);
 		ttCompt_02.add(ttCompt_02_pos);
+	}
+
+	function addSmoke() {
+		var particleTexture = THREE.ImageUtils.loadTexture('media/particle.png'),
+            spriteMaterial = new THREE.SpriteMaterial({
+            map: particleTexture,
+            color: 0x020202
+          });
+
+        for (var i = 0; i < totalParticles; i++) {
+          var sprite = new THREE.Sprite(spriteMaterial);
+
+          sprite.scale.set(60, 60, 1.0);
+          sprite.position.set(Math.random() * 30 - 15, Math.random()*20, Math.random() * 30 - 15);
+          sprite.position.setLength(Math.random()*100);
+
+          sprite.material.blending = THREE.AdditiveBlending;
+          
+          particles.add(sprite);
+        }
+        particles.position.y = 71;
+		particles.position.x = 50;
+        ttEngine.add(particles);
 	}
 	
     </script>
