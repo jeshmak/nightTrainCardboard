@@ -1,4 +1,4 @@
-# nightTrainCardboard
+# First VR Test
 nightTrain project extended for VR
 
 This is my first test in to the world of Virtual Reality, I have just modified one of my old 
